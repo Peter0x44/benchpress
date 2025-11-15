@@ -14,6 +14,11 @@ class Config:
     label: str
     compiler: str
     flags: str
+    
+    @property
+    def safe_label(self):
+        """Return label sanitized for use as C identifier"""
+        return self.label.replace('=', '_').replace('-', '_').replace(' ', '_')
 
 class FunctionExtractor(c_ast.NodeVisitor):
     def __init__(self):
@@ -161,9 +166,9 @@ class CodeGenerator:
         for _, func_name, _, _ in benchfunc_infos:
             for c in configs:
                 compiler_var = f"$CC_{c.compiler.upper()}"
-                obj_file = f'{func_name}_{c.label}.o'
+                obj_file = f'{func_name}_{c.safe_label}.o'
                 all_obj_files.append(obj_file)
-                lines.append(f'{compiler_var} {c.flags} -DCOMPILE_{c.label} -D{func_name}={func_name}_{c.label} -c -o {obj_file} $0 || exit 1')
+                lines.append(f'{compiler_var} {c.flags} -DCOMPILE_{c.safe_label} -D{func_name}={func_name}_{c.safe_label} -c -o {obj_file} $0 || exit 1')
         
         obj_files = ' '.join(all_obj_files)
         lines.extend(["", "# Compile and link test harness",
@@ -218,7 +223,7 @@ class CodeGenerator:
         # Forward declarations for all BENCHFUNCs
         for return_type, func_name, params, _ in benchfunc_infos:
             for c in configs:
-                lines.append(f"{return_type} {func_name}_{c.label}({params});")
+                lines.append(f"{return_type} {func_name}_{c.safe_label}({params});")
         
         lines.extend(["", "// Generate WARMUP/BENCHMARK wrappers for each config and benchmark", ""])
         
@@ -231,13 +236,13 @@ class CodeGenerator:
                 
                 # Define all BENCHFUNCs for this config
                 for _, func_name, _, _ in benchfunc_infos:
-                    lines.append(f"#define {func_name} {func_name}_{c.label}")
+                    lines.append(f"#define {func_name} {func_name}_{c.safe_label}")
                 
                 benchmark_body = self._strip_braces(benchmark_body)
                 lines.extend([
-                    f"void {warmup_name}_{c.label}_{benchmark_name}(void) {{",
+                    f"void {warmup_name}_{c.safe_label}_{benchmark_name}(void) {{",
                     self._indent(warmup_body), "}",
-                    f"void {benchmark_name}_{c.label}(void) {{",
+                    f"void {benchmark_name}_{c.safe_label}(void) {{",
                     self._indent(benchmark_body), "}",
                 ])
                 
@@ -262,7 +267,7 @@ class CodeGenerator:
             
             lines.append(f"    TestConfig configs_{bench_idx}[] = {{")
             for c in configs:
-                lines.append(f'        {{"{c.compiler} {c.flags}", {warmup_name}_{c.label}_{benchmark_name}, {benchmark_name}_{c.label}}},')
+                lines.append(f'        {{"{c.compiler} {c.flags}", {warmup_name}_{c.safe_label}_{benchmark_name}, {benchmark_name}_{c.safe_label}}},')
             
             lines.extend([
                 "    };",
@@ -397,7 +402,7 @@ def parse_config_spec(spec):
     parts = spec.split(':', 2)
     if len(parts) == 2:
         compiler, flags = parts
-        label = f"{compiler}_{flags.replace('-', '').replace(' ', '_')}"
+        label = f"{compiler}_{flags.replace('-', '').replace(' ', '_').replace('=', '_')}"
     elif len(parts) == 3:
         label, compiler, flags = parts
     else:
