@@ -29,12 +29,6 @@ void init_matrix(Matrix4x4 *m) {
     }
 }
 
-int64_t get_nanos(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
-}
-
 // BENCHFUNC: Function to compile with different compilers/flags
 BENCHFUNC void matmul(Matrix4x4 *a, Matrix4x4 *b, Matrix4x4 *result) {
     for (int i = 0; i < 4; i++) {
@@ -208,6 +202,6 @@ benchpress.py issue_report.c --compilers gcc:clang --flags="-O2:-O3" -o repro.c
 
 ## Limitations
 
-- C++ is untested
-- Requires a posix shell to work
+- C++ doesn't work
+- Requires a posix shell
 - Only supports one benchmark function per file
