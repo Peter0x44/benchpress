@@ -43,7 +43,8 @@ BENCHFUNC void matmul(Matrix4x4 *a, Matrix4x4 *b, Matrix4x4 *result) {
 }
 
 // WARMUP: Called once before benchmarking each config
-WARMUP void do_warmup(void) {
+// Must be named {benchmark_name}_warmup to pair with BENCHMARK
+WARMUP void run_benchmark_warmup(void) {
     Matrix4x4 a, b, result;
     init_matrix(&a);
     init_matrix(&b);
@@ -64,7 +65,7 @@ BENCHMARK void run_benchmark(void) {
 ```
 
 - `BENCHFUNC` - Function(s) to compile with different compilers/flags (can have multiple)
-- `WARMUP` - Warmup code run before each benchmark
+- `WARMUP` - Warmup code run before each benchmark (must be named `{benchmark_name}_warmup`)
 - `BENCHMARK` - Benchmark iterations (harness handles timing, can have multiple)
 
 ### 2. Generate the benchmark

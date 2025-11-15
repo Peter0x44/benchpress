@@ -23,7 +23,7 @@ BENCHFUNC void mat4x4_mul(float * restrict A, float * restrict B, float * restri
 }
 
 // WARMUP: Warmup before benchmarking
-WARMUP void do_warmup(void) {
+WARMUP void run_benchmark_warmup(void) {
     __attribute__((aligned(32))) float A[16];
     __attribute__((aligned(32))) float B[16];
     __attribute__((aligned(32))) float C[16];

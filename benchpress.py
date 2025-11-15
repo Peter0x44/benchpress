@@ -61,7 +61,7 @@ class MarkerExtractor:
     def extract_all(self):
         # Find function names
         benchfunc_names = self._find_name('BENCHFUNC')  # List of names
-        warmup_name = self._find_name('WARMUP')
+        warmup_names = self._find_name('WARMUP')  # List of names
         benchmark_names = self._find_name('BENCHMARK')  # List of names
         
         # Remove markers for parsing
@@ -91,29 +91,40 @@ class MarkerExtractor:
                 benchfunc_infos.append((benchfunc['return_type'], name, 
                                        benchfunc['params'], benchfunc['body']))
             
-            warmup = extractor.functions[warmup_name]
+            # Extract warmup functions
+            warmup_infos = []
+            for name in warmup_names:
+                warmup = extractor.functions[name]
+                warmup_infos.append((name, warmup['body']))
             
-            # Extract info for all BENCHMARKs
+            # Extract info for all BENCHMARKs and pair with warmups
             benchmark_infos = []
-            for name in benchmark_names:
-                benchmark = extractor.functions[name]
-                benchmark_infos.append((name, benchmark['body']))
-            
-            warmup_info = (warmup_name, warmup['body'])
+            for bench_name in benchmark_names:
+                benchmark = extractor.functions[bench_name]
+                
+                # Find matching warmup by prefix (benchmark_warmup matches benchmark)
+                warmup_match = None
+                for warmup_name, warmup_body in warmup_infos:
+                    if warmup_name.endswith('_warmup') and warmup_name[:-7] == bench_name:
+                        warmup_match = (warmup_name, warmup_body)
+                        break
+                
+                if not warmup_match:
+                    raise ValueError(f"No warmup found for benchmark '{bench_name}'. Expected warmup named '{bench_name}_warmup'")
+                
+                benchmark_infos.append((bench_name, benchmark['body'], warmup_match))
         finally:
             os.unlink(temp_path)
         
         helpers = self._extract_helpers()
-        return benchfunc_infos, warmup_info, benchmark_infos, helpers
+        return benchfunc_infos, benchmark_infos, helpers
     
     def _find_name(self, marker):
         matches = re.findall(rf'{marker}\s+[\w\s\*]+?\s+(\w+)\s*\(', self.source)
         if not matches:
             raise ValueError(f"Could not find {marker} marker")
-        # For BENCHFUNC and BENCHMARK, return all matches; for WARMUP, return single match
-        if marker in ['BENCHFUNC', 'BENCHMARK']:
-            return matches
-        return matches[0]
+        # All markers now return lists
+        return matches
     
     def _extract_helpers(self):
         helpers = self.source
@@ -134,9 +145,7 @@ class CodeGenerator:
         self.input_filename = input_filename
         self.compare_mode = compare_mode
     
-    def generate(self, configs, benchfunc_infos, warmup_info, benchmark_infos, helpers):
-        warmup_name, warmup_body = warmup_info
-        
+    def generate(self, configs, benchfunc_infos, benchmark_infos, helpers):
         parts = [
             self._gen_header(configs, benchfunc_infos),
             "\n// ========== BENCHFUNC Implementations ==========\n",
@@ -149,9 +158,7 @@ class CodeGenerator:
         
         parts.extend([
             "\n// ========== Test Harness ==========\n",
-            self._gen_harness(configs, benchfunc_infos,
-                            warmup_name, warmup_body, benchmark_infos,
-                            helpers)
+            self._gen_harness(configs, benchfunc_infos, benchmark_infos, helpers)
         ])
         return '\n'.join(parts)
     
@@ -168,7 +175,7 @@ class CodeGenerator:
                 compiler_var = f"$CC_{c.compiler.upper()}"
                 obj_file = f'{func_name}_{c.safe_label}.o'
                 all_obj_files.append(obj_file)
-                lines.append(f'{compiler_var} {c.flags} -DCOMPILE_{c.safe_label} -D{func_name}={func_name}_{c.safe_label} -c -o {obj_file} $0 || exit 1')
+                lines.append(f'{compiler_var} {c.flags} -DCOMPILE_{c.safe_label} -DCOMPILE_FUNC_{func_name} -D{func_name}={func_name}_{c.safe_label} -c -o {obj_file} $0 || exit 1')
         
         obj_files = ' '.join(all_obj_files)
         lines.extend(["", "# Compile and link test harness",
@@ -182,18 +189,18 @@ class CodeGenerator:
             body = body[1:-1].strip()
         
         # Generate function once, will be compiled multiple times with different -D flags
+        # Wrap with ifdef so only the target function is compiled into each object file
         lines = [
-            f"#ifndef TEST_HARNESS",
+            f"#if defined(COMPILE_FUNC_{func_name}) && !defined(TEST_HARNESS)",
             f"{return_type} {func_name}({params}) {{",
             self._indent(body),
             "}",
-            f"#endif // TEST_HARNESS",
+            f"#endif // COMPILE_FUNC_{func_name}",
             ""
         ]
         return '\n'.join(lines)
     
-    def _gen_harness(self, configs, benchfunc_infos,
-                    warmup_name, warmup_body, benchmark_infos, helpers):
+    def _gen_harness(self, configs, benchfunc_infos, benchmark_infos, helpers):
         lines = [
             "#ifdef TEST_HARNESS",
             "",
@@ -227,11 +234,9 @@ class CodeGenerator:
         
         lines.extend(["", "// Generate WARMUP/BENCHMARK wrappers for each config and benchmark", ""])
         
-        warmup_body = self._strip_braces(warmup_body)
-        
         # Generate wrappers for each config and each benchmark
         for c in configs:
-            for benchmark_name, benchmark_body in benchmark_infos:
+            for benchmark_name, benchmark_body, (warmup_name, warmup_body) in benchmark_infos:
                 lines.append(f"// Wrappers for {c.label} - {benchmark_name}")
                 
                 # Define all BENCHFUNCs for this config
@@ -239,9 +244,10 @@ class CodeGenerator:
                     lines.append(f"#define {func_name} {func_name}_{c.safe_label}")
                 
                 benchmark_body = self._strip_braces(benchmark_body)
+                warmup_body_stripped = self._strip_braces(warmup_body)
                 lines.extend([
-                    f"void {warmup_name}_{c.safe_label}_{benchmark_name}(void) {{",
-                    self._indent(warmup_body), "}",
+                    f"void {warmup_name}_{c.safe_label}(void) {{",
+                    self._indent(warmup_body_stripped), "}",
                     f"void {benchmark_name}_{c.safe_label}(void) {{",
                     self._indent(benchmark_body), "}",
                 ])
@@ -261,13 +267,13 @@ class CodeGenerator:
         ])
         
         # Run each benchmark separately
-        for bench_idx, (benchmark_name, _) in enumerate(benchmark_infos):
+        for bench_idx, (benchmark_name, _, (warmup_name, _)) in enumerate(benchmark_infos):
             if len(benchmark_infos) > 1:
                 lines.append(f'    printf("\\n=== {benchmark_name} ===\\n");')
             
             lines.append(f"    TestConfig configs_{bench_idx}[] = {{")
             for c in configs:
-                lines.append(f'        {{"{c.compiler} {c.flags}", {warmup_name}_{c.safe_label}_{benchmark_name}, {benchmark_name}_{c.safe_label}}},')
+                lines.append(f'        {{"{c.compiler} {c.flags}", {warmup_name}_{c.safe_label}, {benchmark_name}_{c.safe_label}}},')
             
             lines.extend([
                 "    };",
@@ -481,7 +487,7 @@ examples:
     
     try:
         template_parser = TemplateParser(template_source)
-        benchfunc_info, warmup_info, benchmark_info, helpers = template_parser.parse_all()
+        benchfunc_info, benchmark_info, helpers = template_parser.parse_all()
     except Exception as e:
         print(f"Error parsing template: {e}", file=sys.stderr)
         import traceback
@@ -500,7 +506,7 @@ examples:
         compare_mode = None
     
     generator = CodeGenerator(args.input, compare_mode)
-    output = generator.generate(configs, benchfunc_info, warmup_info, benchmark_info, helpers)
+    output = generator.generate(configs, benchfunc_info, benchmark_info, helpers)
     
     try:
         with open(args.output, 'w') as f:
