@@ -63,9 +63,9 @@ BENCHMARK void run_benchmark(void) {
 }
 ```
 
-- `BENCHFUNC` - Function to compile with different compilers/flags
+- `BENCHFUNC` - Function(s) to compile with different compilers/flags (can have multiple)
 - `WARMUP` - Warmup code run before each benchmark
-- `BENCHMARK` - Benchmark iterations (harness handles timing)
+- `BENCHMARK` - Benchmark iterations (harness handles timing, can have multiple)
 
 ### 2. Generate the benchmark
 
@@ -204,4 +204,3 @@ benchpress.py issue_report.c --compilers gcc:clang --flags="-O2:-O3" -o repro.c
 
 - C++ doesn't work
 - Requires a posix shell
-- Only supports one benchmark function per file
