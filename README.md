@@ -85,12 +85,15 @@ sh benchmark.c
 
 Output:
 ```
+GCC version: gcc (GCC) 15.2.0
+Clang version: clang version 20.1.6
+
 gcc -O2: 6.374 seconds
 gcc -O3: 3.681 seconds
 clang -O2: 6.163 seconds
 clang -O3: 3.801 seconds
--O2: clang -O2 was 1.03x faster
--O3: gcc -O3 was 1.03x faster
+gcc -O2 vs clang -O2: clang -O2 was 1.03x faster
+clang -O3 vs gcc -O3: gcc -O3 was 1.03x faster
 ```
 
 The generated `benchmark.c` is self-contained and can be shared as a single file.
@@ -129,28 +132,45 @@ Specify each configuration manually:
 ```bash
 benchpress.py template.c \
   --config gcc:-O2 \
-  --config "gcc_O3_native:gcc:-O3 -march=native" \
+  --config "gcc:-O3 -march=native" \
   --config clang:-O2 \
   --config clang:-O3 \
   -o benchmark.c
 ```
 
-Configuration format: `[LABEL:]COMPILER:FLAGS`
-- `LABEL` is optional (defaults to `compiler_FLAGS`)
+Configuration format: `COMPILER:FLAGS`
 - `COMPILER` must be `gcc` or `clang`
 - `FLAGS` are compiler flags (quote if they contain spaces)
 
 ### Custom Comparisons
 
-By default, flag combinations compare same flags across different compilers. You can override this:
+By default, flag combinations compare same flags across different compilers. You can override this with `--compare`:
 
 ```bash
+# Compare specific configs (disables default comparisons)
 benchpress.py template.c \
   --compilers gcc:clang \
   --flags="-O2:-O3" \
   --compare "gcc -O3,clang -O3" \
+  --compare "gcc -O2,clang -O2" \
+  -o benchmark.c
+
+# Compare optimization levels
+benchpress.py template.c \
+  --config gcc:-O2 \
+  --config gcc:-O3 \
+  --compare "gcc -O2,gcc -O3" \
+  -o benchmark.c
+
+# Test impact of -march=native
+benchpress.py template.c \
+  --config "gcc:-O3" \
+  --config "gcc:-O3 -march=native" \
+  --compare "gcc -O3,gcc -O3 -march=native" \
   -o benchmark.c
 ```
+
+The `--compare` flag can be repeated to create multiple comparison groups. When used, it disables the default cross-compiler comparisons.
 
 ## Command-Line Reference
 
@@ -166,7 +186,7 @@ options:
   -h, --help            show this help message and exit
   -o OUTPUT, --output OUTPUT
                         output self-building benchmark file
-  --config SPEC         add config: [label:]compiler:flags (can be repeated)
+  --config SPEC         add config: compiler:flags (can be repeated)
   --compilers LIST      compilers to test, colon-separated (e.g., gcc:clang)
   --flags LIST          flag sets to test, colon-separated (e.g., "-O2:-O3")
   --compare LABELS      specific configs to compare, comma-separated

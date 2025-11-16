@@ -180,6 +180,10 @@ class CodeGenerator:
         obj_files = ' '.join(all_obj_files)
         lines.extend(["", "# Compile and link test harness",
                      f'$CC_GCC -DTEST_HARNESS -O2 -o benchmark $0 {obj_files} -lm || exit 1',
+                     "", "# Print compiler versions",
+                     'echo "GCC version: $($CC_GCC --version | head -n 1)"',
+                     'echo "Clang version: $($CC_CLANG --version | head -n 1)"',
+                     'echo ""',
                      "", './benchmark', "", 'exit 0', '#endif'])
         return '\n'.join(lines)
     
@@ -320,69 +324,70 @@ class CodeGenerator:
                             "            }",
                             "        }",
                             "",
-                            "            double speedup = 1.0;",
-                            "            for (int i = 0; i < count; i++) {",
-                            "                int idx = flag_configs[i];",
-                            "                if (idx != fastest_idx) {",
-                            f"                    double ratio = (double)times_{bench_idx}[idx] / times_{bench_idx}[fastest_idx];",
-                            "                    if (ratio > speedup) speedup = ratio;",
-                            "                }",
+                            "        for (int i = 0; i < count; i++) {",
+                            "            int idx = flag_configs[i];",
+                            "            if (idx != fastest_idx) {",
+                            f"                double speedup = (double)times_{bench_idx}[idx] / times_{bench_idx}[fastest_idx];",
+                            f'                printf("%s vs %s: %s was %.2fx faster\\n",',
+                            f"                       configs_{bench_idx}[idx].label, configs_{bench_idx}[fastest_idx].label,",
+                            f"                       configs_{bench_idx}[fastest_idx].label, speedup);",
                             "            }",
-                            f'            printf("{flags}: %s was %.2fx faster\\n", configs_{bench_idx}[fastest_idx].label, speedup);',
+                            "        }",
                             "    }",
                         ])
             elif self.compare_mode:
-                # Specific label comparisons
-                compare_labels = [label.strip() for label in self.compare_mode.split(',')]
-                lines.extend([
-                    "    // Compare specific configs",
-                    "    const char *compare_labels[] = {",
-                ])
-                for label in compare_labels:
-                    lines.append(f'        "{label}",')
-                lines.extend([
-                    "    };",
-                    f"    int num_compare = {len(compare_labels)};",
-                    "    int compare_indices[num_compare];",
-                    "    int found = 0;",
-                    "",
-                    "    // Find indices of specified labels",
-                    "    for (int i = 0; i < num_compare; i++) {",
-                    "        compare_indices[i] = -1;",
-                    "        for (int j = 0; j < num_configs; j++) {",
-                    "            if (strcmp(configs[j].label, compare_labels[i]) == 0) {",
-                    "                compare_indices[i] = j;",
-                    "                found++;",
-                    "                break;",
-                    "            }",
-                    "        }",
-                    "    }",
-                    "",
-                    "    if (found > 1) {",
-                    "        // Find fastest among specified configs",
-                    "        int fastest_compare = -1;",
-                    "        for (int i = 0; i < num_compare; i++) {",
-                    "            if (compare_indices[i] >= 0) {",
-                    "                if (fastest_compare < 0 || times[compare_indices[i]] < times[compare_indices[fastest_compare]]) {",
-                    "                    fastest_compare = i;",
-                    "                }",
-                    "            }",
-                    "        }",
-                    "",
-                    '        printf("Specific comparisons:\\n");',
-                    "        for (int i = 0; i < num_compare; i++) {",
-                    "            if (compare_indices[i] >= 0 && i != fastest_compare) {",
-                    "                int idx = compare_indices[i];",
-                    "                int fastest_idx = compare_indices[fastest_compare];",
-                    "                double speedup = (double)times[idx] / times[fastest_idx];",
-                    '                printf("  %s is %.2fx faster than %s (%.1f%% faster)\\n",',
-                    "                       configs[fastest_idx].label, speedup, configs[idx].label,",
-                    "                       (speedup - 1.0) * 100.0);",
-                    "            }",
-                    "        }",
-                    '        printf("\\n");',
-                    "    }",
-                ])
+                # Specific label comparisons - iterate through each comparison group
+                for compare_group in self.compare_mode:
+                    compare_labels = [label.strip() for label in compare_group.split(',')]
+                    lines.extend([
+                        "    // Compare specific configs",
+                        "    {",
+                        "        const char *compare_labels[] = {",
+                    ])
+                    for label in compare_labels:
+                        lines.append(f'            "{label}",')
+                    lines.extend([
+                        "        };",
+                        f"        int num_compare = {len(compare_labels)};",
+                        "        int compare_indices[num_compare];",
+                        "        int found = 0;",
+                        "",
+                        "        // Find indices of specified labels",
+                        "        for (int i = 0; i < num_compare; i++) {",
+                        "            compare_indices[i] = -1;",
+                        f"            for (int j = 0; j < num_configs_{bench_idx}; j++) {{",
+                        f"                if (strcmp(configs_{bench_idx}[j].label, compare_labels[i]) == 0) {{",
+                        "                    compare_indices[i] = j;",
+                        "                    found++;",
+                        "                    break;",
+                        "                }",
+                        "            }",
+                        "        }",
+                        "",
+                        "        if (found > 1) {",
+                        "            // Find fastest among specified configs",
+                        "            int fastest_compare = -1;",
+                        "            for (int i = 0; i < num_compare; i++) {",
+                        "                if (compare_indices[i] >= 0) {",
+                        f"                    if (fastest_compare < 0 || times_{bench_idx}[compare_indices[i]] < times_{bench_idx}[compare_indices[fastest_compare]]) {{",
+                        "                        fastest_compare = i;",
+                        "                    }",
+                        "                }",
+                        "            }",
+                        "",
+                        "            for (int i = 0; i < num_compare; i++) {",
+                        "                if (compare_indices[i] >= 0 && i != fastest_compare) {",
+                        "                    int idx = compare_indices[i];",
+                        "                    int fastest_idx = compare_indices[fastest_compare];",
+                        f"                    double speedup = (double)times_{bench_idx}[idx] / times_{bench_idx}[fastest_idx];",
+                        '                    printf("%s vs %s: %s was %.2fx faster\\n",',
+                        f"                           configs_{bench_idx}[idx].label, configs_{bench_idx}[fastest_idx].label,",
+                        f"                           configs_{bench_idx}[fastest_idx].label, speedup);",
+                        "                }",
+                        "            }",
+                        "        }",
+                        "    }",
+                    ])
         # End of benchmark loop (for multiple benchmarks)
         
         lines.extend([
@@ -405,14 +410,12 @@ class CodeGenerator:
                         for line in code.split('\n'))
 
 def parse_config_spec(spec):
-    parts = spec.split(':', 2)
-    if len(parts) == 2:
-        compiler, flags = parts
-        label = f"{compiler}_{flags.replace('-', '').replace(' ', '_').replace('=', '_')}"
-    elif len(parts) == 3:
-        label, compiler, flags = parts
-    else:
-        raise ValueError(f"Invalid config spec: {spec}")
+    parts = spec.split(':', 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid config spec: {spec}. Expected format: compiler:flags")
+    
+    compiler, flags = parts
+    label = f"{compiler}_{flags.replace('-', '').replace(' ', '_').replace('=', '_')}"
     
     if compiler not in ['gcc', 'clang']:
         raise ValueError(f"Invalid compiler: {compiler}")
@@ -437,23 +440,24 @@ examples:
   # Compare gcc and clang with -O2 and -O3
   benchpress template.c --compilers gcc:clang --flags "-O2:-O3" -o bench.c
   
-  # Specific configs with custom labels
-  benchpress template.c --config "fast:gcc:-O3 -march=native" --config clang:-O2 -o bench.c
+  # Specific configs
+  benchpress template.c --config gcc:-O3 --config clang:-O2 -o bench.c
   
-  # Custom comparisons
-  benchpress template.c --compilers gcc:clang --flags "-O2:-O3" --compare "gcc -O3,clang -O3" -o bench.c
+  # Custom comparisons (disables default comparisons)
+  benchpress template.c --compilers gcc:clang --flags "-O2:-O3" \\
+    --compare "gcc -O3,clang -O3" --compare "gcc -O2,clang -O2" -o bench.c
         '''
     )
     parser.add_argument('input', help='template file with BENCHFUNC/WARMUP/BENCHMARK markers')
     parser.add_argument('-o', '--output', required=True, help='output self-building benchmark file')
     parser.add_argument('--config', action='append', dest='configs', metavar='SPEC',
-                       help='add config: [label:]compiler:flags (can be repeated)')
+                       help='add config: compiler:flags (can be repeated)')
     parser.add_argument('--compilers', metavar='LIST', 
                        help='compilers to test, colon-separated (e.g., gcc:clang)')
     parser.add_argument('--flags', metavar='LIST',
                        help='flag sets to test, colon-separated (e.g., "-O2:-O3")')
-    parser.add_argument('--compare', metavar='LABELS',
-                       help='specific configs to compare, comma-separated (e.g., "gcc -O3,clang -O3")')
+    parser.add_argument('--compare', action='append', dest='compares', metavar='LABELS',
+                       help='specific configs to compare, comma-separated (e.g., "gcc -O3,clang -O3"). Can be repeated for multiple comparisons.')
     
     args = parser.parse_args()
     
@@ -495,9 +499,9 @@ examples:
         return 1
     
     # Determine comparison mode
-    if args.compare:
-        # User provided specific labels
-        compare_mode = args.compare
+    if args.compares:
+        # User provided specific label groups - no default comparisons
+        compare_mode = args.compares  # List of comparison groups
     elif args.compilers and args.flags:
         # Using flag combinations: compare same flags across compilers
         compare_mode = 'across'
